@@ -4,23 +4,23 @@ const fetch = require("node-fetch");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const API_KEY = process.env.GOOGLE_API_KEY; // wird in Railway als Umgebungsvariable gesetzt
 
-app.use(cors()); // erlaubt Anfragen von überall (auch vom Claude-Tool)
+app.use(cors());
 app.use(express.json());
 
-// Health Check
 app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "LeadFinder Proxy läuft ✓" });
+  const keySet = !!process.env.GOOGLE_API_KEY;
+  res.json({ status: "ok", key_loaded: keySet });
 });
 
-// Google Places Text Search
 app.get("/places/search", async (req, res) => {
-  const { query, pagetoken } = req.query;
-
+  const API_KEY = process.env.GOOGLE_API_KEY;
+  
   if (!API_KEY) {
-    return res.status(500).json({ error: "GOOGLE_API_KEY nicht gesetzt" });
+    return res.status(500).json({ error: "GOOGLE_API_KEY nicht gesetzt", env_keys: Object.keys(process.env).filter(k => k.includes("GOOGLE") || k.includes("API")) });
   }
+
+  const { query, pagetoken } = req.query;
 
   let url;
   if (pagetoken) {
@@ -39,10 +39,11 @@ app.get("/places/search", async (req, res) => {
   }
 });
 
-// Google Place Details (für Telefon + Webseite)
 app.get("/places/details", async (req, res) => {
-  const { place_id } = req.query;
+  const API_KEY = process.env.GOOGLE_API_KEY;
+  if (!API_KEY) return res.status(500).json({ error: "GOOGLE_API_KEY nicht gesetzt" });
 
+  const { place_id } = req.query;
   if (!place_id) return res.status(400).json({ error: "place_id fehlt" });
 
   const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place_id}&fields=name,formatted_phone_number,website,formatted_address&key=${API_KEY}&language=de`;
@@ -57,5 +58,6 @@ app.get("/places/details", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✓ Proxy läuft auf Port ${PORT}`);
+  console.log(`Server läuft auf Port ${PORT}`);
+  console.log(`GOOGLE_API_KEY gesetzt: ${!!process.env.GOOGLE_API_KEY}`);
 });
