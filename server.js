@@ -5,7 +5,13 @@ const fetch = require("node-fetch");
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+app.options("*", cors());
 app.use(express.json());
 
 app.get("/", (req, res) => {
@@ -15,13 +21,9 @@ app.get("/", (req, res) => {
 
 app.get("/places/search", async (req, res) => {
   const API_KEY = process.env.GOOGLE_API_KEY;
-  
-  if (!API_KEY) {
-    return res.status(500).json({ error: "GOOGLE_API_KEY nicht gesetzt", env_keys: Object.keys(process.env).filter(k => k.includes("GOOGLE") || k.includes("API")) });
-  }
+  if (!API_KEY) return res.status(500).json({ error: "GOOGLE_API_KEY nicht gesetzt" });
 
   const { query, pagetoken } = req.query;
-
   let url;
   if (pagetoken) {
     url = `https://maps.googleapis.com/maps/api/place/textsearch/json?pagetoken=${pagetoken}&key=${API_KEY}`;
