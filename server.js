@@ -13,48 +13,65 @@ app.get("/", (req, res) => {
   res.json({ status: "ok", key_loaded: !!process.env.GOOGLE_API_KEY });
 });
 
-app.get("/places/search", async (req, res) => {
-  const API_KEY = process.env.GOOGLE_API_KEY;
-  if (!API_KEY) return res.status(500).json({ error: "GOOGLE_API_KEY nicht gesetzt" });
+// Hilfsfunktion: eine Seite von Google holen
+async function fetchPage(url) {
+  const res = await fetch(url);
+  return res.json();
+}
 
-  const { query, pagetoken } = req.query;
-  let url;
+// Wartezeit zwischen Seiten (Google braucht ~2s)
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-  if (pagetoken) {
-    // Token direkt ohne weiteres encoding übergeben
-    url = `https://maps.googleapis.com/maps/api/place/textsearch/json?pagetoken=${pagetoken}&key=${API_KEY}`;
-  } else {
-    if (!query) return res.status(400).json({ error: "query fehlt" });
-    url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${API_KEY}&language=de&region=de`;
-  }
-
-  try {
-    const response = await fetch(url);
-    const data = await response.json();
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: "Fehler", details: err.message });
-  }
-});
-
+// Hauptendpoint: holt automatisch bis zu 60 Ergebnisse (3 Seiten)
 app.post("/places/search", async (req, res) => {
   const API_KEY = process.env.GOOGLE_API_KEY;
   if (!API_KEY) return res.status(500).json({ error: "GOOGLE_API_KEY nicht gesetzt" });
 
-  const { query, pagetoken } = req.body;
-  let url;
-
-  if (pagetoken) {
-    url = `https://maps.googleapis.com/maps/api/place/textsearch/json?pagetoken=${pagetoken}&key=${API_KEY}`;
-  } else {
-    if (!query) return res.status(400).json({ error: "query fehlt" });
-    url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${API_KEY}&language=de&region=de`;
-  }
+  const { query } = req.body;
+  if (!query) return res.status(400).json({ error: "query fehlt" });
 
   try {
-    const response = await fetch(url);
-    const data = await response.json();
-    res.json(data);
+    let allResults = [];
+    let nextPageToken = null;
+    let page = 0;
+
+    // Erste Seite
+    const firstUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${API_KEY}&language=de&region=de`;
+    const firstData = await fetchPage(firstUrl);
+
+    if (firstData.status === "REQUEST_DENIED") {
+      return res.status(403).json({ error: "API Key ungültig", message: firstData.error_message });
+    }
+
+    allResults = allResults.concat(firstData.results || []);
+    nextPageToken = firstData.next_page_token || null;
+    page++;
+
+    // Seite 2 und 3
+    while (nextPageToken && page < 3) {
+      await sleep(2500); // Google braucht Zeit bis Token aktiv ist
+      const nextUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?pagetoken=${nextPageToken}&key=${API_KEY}`;
+      const nextData = await fetchPage(nextUrl);
+
+      if (nextData.status === "OK" || nextData.status === "ZERO_RESULTS") {
+        allResults = allResults.concat(nextData.results || []);
+        nextPageToken = nextData.next_page_token || null;
+      } else {
+        // Bei INVALID_REQUEST aufhören
+        break;
+      }
+      page++;
+    }
+
+    res.json({
+      status: "OK",
+      results: allResults,
+      total: allResults.length,
+      pages_fetched: page
+    });
+
   } catch (err) {
     res.status(500).json({ error: "Fehler", details: err.message });
   }
